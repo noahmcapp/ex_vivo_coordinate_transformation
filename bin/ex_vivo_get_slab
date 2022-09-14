@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+
+# system modules
+import os
+import sys
+import argparse
+
+# installed modules
+import numpy as np
+import pandas as pd
+import SimpleITK as sitk
+
+# loads a .csv file with the following format
+# Name,FLASH_x,FLASH_y,FLASH_z,T2_x,T2_y,T2_z,Slab
+# Motor,100,200,300,56,19,99,3
+# ...
+def load_coords(f):
+    df = pd.read_csv(f)
+    names = list(df['Name'])
+    flash_coords = np.array(list(zip(df['FLASH_x'], df['FLASH_y'], df['FLASH_z'])))
+    t2_coords = np.array(list(zip(df['T2_x'], df['T2_y'], df['T2_z'])))
+    slabs = list(df['Slab'])
+
+    return names, flash_coords, t2_coords, slabs
+#
+# end of load coords
+
+def write_coords(f, names, flash_coords, t2_coords, slabs):
+    df = pd.DataFrame({
+        'Name': names,
+        'FLASH_x': flash_coords[:,0],
+        'FLASH_y': flash_coords[:,1],
+        'FLASH_z': flash_coords[:,2],
+        'T2_x': t2_coords[:,0],
+        'T2_y': t2_coords[:,1],
+        'T2_z': t2_coords[:,2],
+        'Slab': slabs,
+    })
+    df.to_csv(f.replace('.csv', '_PROCESSED.csv'), index=False)
+#
+# end of write_coords
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--indd', type=str, required=True,
+                        dest='indd',
+                        help="INDD ID of the form INDD000000X")
+    parser.add_argument('-d', '--directory', type=str, required=True,
+                        dest='brainmold_directory',
+                        help="path to brainmolds containing INDD000000X folders")
+    parser.add_argument('-c', '--coordinates', type=str, required=True,
+                        dest='coordinates_filename',
+                        help="path to coordinates CSV file")
+    args = parser.parse_args()
+
+    # make sure the given brainmold directory exists
+    if not os.path.exists(args.brainmold_directory):
+        print('ERROR: Brainmold directory not found -- %s' % args.brainmold_directory)
+        exit()
+
+    # make sure the given slab directory exists
+    slab_directory = os.path.join(args.brainmold_directory, args.indd, 'brainmold_v2')
+    if not os.path.exists(slab_directory):
+        print('ERROR: Slab directory not found -- %s' % slab_directory)
+        
+    # find all slab filenames
+    slab_data = []
+    print('***> Loading Slabs <***', flush=True)
+    for i in range(0, 100):
+        slab_filename = os.path.join(
+            slab_directory, '%s_slab%02d_mask_with_dots.nii.gz' % (args.indd[4:], i)
+        )
+        if os.path.exists(slab_filename):
+
+            # load the slab, transform to world coordinates
+            slab = sitk.ReadImage(slab_filename)
+            slab_arr = sitk.GetArrayFromImage(slab)
+            LPS_mat = np.array(slab.GetDirection()).reshape(3,3) @ np.diag(slab.GetSpacing())
+            LPS_off = np.array(slab.GetOrigin())
+            LPS_to_RAS_mat = np.diag([-1.,-1.,1.])
+            idx_ijk = np.flip(np.vstack(np.where(np.isfinite(slab_arr))), axis=0)
+            idx_ras = LPS_to_RAS_mat @ ((LPS_mat @ idx_ijk).T + LPS_off).T
+            x_ras = idx_ras[0,:].reshape(slab_arr.shape)
+            y_ras = idx_ras[1,:].reshape(slab_arr.shape)
+            z_ras = idx_ras[2,:].reshape(slab_arr.shape)
+            slab_data.append((i, slab_filename, x_ras, y_ras, z_ras))
+
+    # make sure slabs were actually found
+    if len(slab_data) == 0:
+        print('ERROR: No Slab Masks (INDD_slabXX_mask_with_dots.nii.gz) found at -- %s' % slab_directory)
+        exit()
+
+    # get the reslice image
+    reslice_filename = os.path.join(
+        slab_directory, '..', '%s_reslice.nii.gz' % (args.indd[4:])
+    )
+    if not os.path.exists(reslice_filename):
+        print('ERROR: Reslice image not found -- %s' % reslice_filename)
+        exit()
+
+    # get the transformation matrices to convert t2 to world
+    # NOTE: this is from Paul's slab_postproc in brainmold repository
+    print('***> Loading Reslice <***', flush=True)
+    reslice = sitk.ReadImage(reslice_filename)
+    LPS_mat = np.array(reslice.GetDirection()).reshape(3,3) @ np.diag(reslice.GetSpacing())
+    LPS_off = np.array(reslice.GetOrigin())
+    LPS_to_RAS_mat = np.diag([-1.,-1.,1.])
+        
+    # load and iterate through the T2 coordinates
+    names, flash_coords, t2_coords, slabs = load_coords(args.coordinates_filename)
+    for i, t2_coord in enumerate(t2_coords):
+        t2_coord = t2_coord[:,None]
+
+        # convert the coordinate to world coordinates
+        world_coord = LPS_to_RAS_mat @ ((LPS_mat @ t2_coord).T + LPS_off).T
+
+        # find which slab the given coordinate is a part of
+        for slab_number, slab_filename, x_ras, y_ras, z_ras in slab_data:
+            if world_coord[1,0] < np.max(y_ras) and world_coord[1,0] > np.min(y_ras):
+                slabs[i] = slab_number
+                break
+        #
+        # end of slab number finding
+    #
+    # end of coordinates loop
+
+    # write the slab numbers
+    print('***> Writing Slab Numbers <***', flush=True)
+    write_coords(args.coordinates_filename, names, flash_coords, t2_coords, slabs)
+#
+# end of main
+
+if __name__ == '__main__':
+    main(sys.argv)
+
+#
+# end of file

@@ -34,7 +34,7 @@ def write_coords(f, names, flash_coords, t2_coords, slabs):
         'T2_z': t2_coords[:,2],
         'Slab': slabs,
     })
-    df.to_csv(f+'_new', index=False)
+    df.to_csv(f.replace('.csv', '_PROCESSED.csv'), index=False)
 #
 # end of write_coords
 
