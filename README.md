@@ -23,21 +23,22 @@ These instructions will get you all necessary code and binaries to run the coord
 
 Download/Clone this repository to a secure location
 
-    git clone TODO TODO
+    git clone https://github.com/noahmcapp/ex_vivo_coordinate_transformation.git ~/ex_vivo_coordinate_transformation
 
 Add the cloned directory to your [PATH environment variable](https://www.java.com/en/download/help/path.html)
 
-    PATH=$PATH:TODO/bin
+    PATH=$PATH:~/ex_vivo_coordinate_transformation/bin
 
 Run ex_vivo_convert_t2 to ensure everything worked
 
-    TODO USAGE
+    $ ex_vivo_coordinates % ex_vivo_convert_t2
+    usage: ex_vivo_convert_t2 --coordinates /path/to/coords.csv --t2 /path/to/t2.nii.gz --flash /path/to/flash.nii.gz
 
 ## Running the programs
 
 ### Input CSV format
 
-TODO link to empty CSV in project
+[Template CSF File](https://github.com/noahmcapp/ex_vivo_coordinate_transformation/blob/main/etc/coordinates_template.csv)
 
 A single CSV file represents a list of coordinates from a patient. The coordinates may be named, and are represented by their FLASH version, T2 version, as well as the slab that the coordinate falls in.
 
