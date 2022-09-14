@@ -38,7 +38,7 @@ Run ex_vivo_convert_t2 to ensure everything worked
 
 ### Input CSV format
 
-[Template CSF File](https://github.com/noahmcapp/ex_vivo_coordinate_transformation/blob/main/etc/coordinates_template.csv)
+[Template CSV File](https://github.com/noahmcapp/ex_vivo_coordinate_transformation/blob/main/etc/coordinates_template.csv)
 
 A single CSV file represents a list of coordinates from a patient. The coordinates may be named, and are represented by their FLASH version, T2 version, as well as the slab that the coordinate falls in.
 
@@ -71,6 +71,21 @@ This will add the T2 coordinates to your input CSV file
 
 #### Example
     ex_vivo_convert_flash -c /path/to/coordinates.csv -flash /path/to/flash.nii.gz -t2 /path/to/t2.nii.gz 
+
+### Slab Number Generation
+
+This will add the slab numbers to your input CSV file
+
+#### Inputs
+- patientX_coordinates.csv
+    - Filled w/ T2_x,T2_y,T2_z data
+- /path/to/brainmolds/
+    - location where the reslice and slab masks are stored. NOTE: On Box this would be Box/Hemisphere_segmentation/subjects
+- INDD000000X
+    - INDD ID of the patient where the coordinates are from
+    
+#### Example
+    ex_vivo_get_slab --indd INDD123456R --directory $BOX/Hemisphere_segmentation/subjects --coordinates /path/to/coordinates.csv
 
 ### Additional Files
 - flash_to_t2_mask.mat
