@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import argparse
+
+import numpy as np
+import pandas as pd
+import SimpleITK as sitk
+
+# loads a .csv file with the following format
+# Name,FLASH_x,FLASH_y,FLASH_z,T2_x,T2_y,T2_z,Slab
+# Motor,100,200,300,56,19,99,3
+# ...
+def load_coords(f):
+    df = pd.read_csv(f)
+    names = list(df['Name'])
+    flash_coords = np.array(list(zip(df['FLASH_x'], df['FLASH_y'], df['FLASH_z'])))
+    t2_coords = np.array(list(zip(df['T2_x'], df['T2_y'], df['T2_z'])))
+    slabs = list(df['Slab'])
+
+    return names, flash_coords, t2_coords, slabs
+#
+# end of load coords
+
+def write_coords(f, names, flash_coords, t2_coords, slabs):
+    df = pd.DataFrame({
+        'Name': names,
+        'FLASH_x': flash_coords[:,0],
+        'FLASH_y': flash_coords[:,1],
+        'FLASH_z': flash_coords[:,2],
+        'T2_x': t2_coords[:,0],
+        'T2_y': t2_coords[:,1],
+        'T2_z': t2_coords[:,2],
+        'Slab': slabs,
+    })
+    df.to_csv(f+'_new', index=False)
+#
+# end of write_coords
+
+def load_dimension(filename):
+    reader = sitk.ImageFileReader()
+    reader.SetFileName(filename)
+    reader.ReadImageInformation()
+    return np.array(reader.GetSize())
+#
+# end of load_dimension
+
+# TODO: when to convert?
+# TODO: should be a library to write this?
+def coords_to_voxels(filename, coords):
+    voxels = open(filename, 'w')
+    voxels.write(
+    '# vtk DataFile Version 4.0\n'+
+    'vtk output\n'+
+    'ASCII\n'+
+    'DATASET POLYDATA\n'+
+    'POINTS %d float\n' % (len(coords))
+    )
+    for x, y, z in coords:
+        voxels.write('%d %d %d\n' % (x, y, z))
+    voxels.close()
+#
+# end of coords_to_voxels
+
+# TODO: should be a library to read this?
+def voxels_to_coords(filename):
+    lines = [l.rstrip() for l in open(filename, 'r')]
+    points_ind = ['POINTS' in line for line in lines].index(True) + 1
+    voxel_strs = ' '.join(lines[points_ind:]).split(' ')
+    coords = []
+    for i in range(len(voxel_strs) // 3):
+        coords.append([float(x) for x in voxel_strs[3*i:3*i+3]])
+    coords = np.array(coords)
+    # coords = np.floor(coords).astype(int)
+
+    return coords
+#
+# end of voxels_to_coords
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--coordinates', dest='coordinates_filename',
+                        type=str, required=True)
+    parser.add_argument('--flash', dest='flash_filename',
+                        type=str, required=True)
+    parser.add_argument('--t2', dest='t2_filename',
+                        type=str, required=True)
+    parser.add_argument('--tmp', dest='tmp_dir',
+                        type=str, required=True)
+    parser.add_argument('--voxels', dest='voxels_filename',
+                        type=str, default=None)
+    args = parser.parse_args()
+
+    # load the input CSV file
+    names, flash_coords, t2_coords, slabs = load_coords(args.coordinates_filename)
+
+    # load the FLASH dimension for generating FLASH voxels
+    flash_dim = load_dimension(args.flash_filename)
+
+    # load the T2 dimension for generating T2 voxels
+    t2_dim = load_dimension(args.t2_filename)
+    
+    # generate FLASH voxels
+    if not np.all(np.isnan(flash_coords)):
+        # prepare voxels, switch x and z, subtract coords from FLASH dimension
+        flash_voxels = flash_dim - flash_coords[:,(2,1,0)]
+
+        # write the data to the tmp file
+        voxel_filename = os.path.join(args.tmp_dir, 'flash.vtk')
+        coords_to_voxels(voxel_filename, flash_voxels)
+        
+    # generate T2 voxels
+    if not np.all(np.isnan(t2_coords)):
+        t2_voxels = t2_coords.copy()
+        
+        # write the data to the tmp file
+        voxel_filename = os.path.join(args.tmp_dir, 't2.vtk')
+        coords_to_voxels(voxel_filename, t2_voxels)
+
+    if not args.voxels_filename is None:
+
+        if 'flash.vtk' in args.voxels_filename:
+            flash_voxels = voxels_to_coords(args.voxels_filename)
+            flash_coords = (flash_dim - flash_voxels)[:,(2,1,0)]
+        else:
+            t2_coords = voxels_to_coords(args.voxels_filename)
+
+        write_coords(args.coordinates_filename, names, flash_coords, t2_coords, slabs)
+#
+# end of main
+
+if __name__ == '__main__':
+    main(sys.argv)
+
+#
+# end of file

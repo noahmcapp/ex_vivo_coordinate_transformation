@@ -1,0 +1,83 @@
+#!/bin/bash
+
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -c|--coordinates)
+      COORDS="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -t|--t2)
+      T2="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -f|--flash)
+      FLASH="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -*|--*)
+      echo "Unknown option $1"
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1") # save positional arg
+      shift # past argument
+      ;;
+  esac
+done
+
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
+USAGE='usage: ex_vivo_convert_flash --coordinates /path/to/coords.csv --t2 /path/to/t2.nii.gz --flash /path/to/flash.nii.gz\n'
+if [ -z "$COORDS" ]; then
+    echo -e $USAGE
+    exit 1
+fi
+if [ -z "$T2" ]; then
+    echo -e $USAGE
+    exit 1
+fi
+if [ -z "$FLASH" ]; then
+    echo -e $USAGE
+    exit 1
+fi
+
+# get the location of the script
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+# get the supplementary data/code/binaries
+FLASH_TO_T2=$SCRIPT_DIR/flash_to_t2_mask.mat
+GREEDY=$SCRIPT_DIR/greedy
+HANDLER=ex_vivo_data_handler
+
+# do everything in the tmp dir
+TMP=`mktemp -d`
+echo $TMP
+
+echo '---> Generating FLASH Voxels -- flash.vtk'
+$HANDLER --coordinates $COORDS --flash $FLASH --t2 $T2 --tmp $TMP
+
+echo '---> Creating the sform matrix -- sform.mat'
+c3d_affine_tool -sform $FLASH -o $TMP/sform.mat
+
+echo '---> Transforming FLASH scan to FLASH world coordinates -- flash_world.vtk'
+$GREEDY -d 3 -rf $FLASH -rs $TMP/flash.vtk $TMP/flash_world.vtk -r $TMP/sform.mat
+
+echo '---> Transforming FLASH world to T2 world -- t2_world.vtk'
+$GREEDY -d 3 -rf $FLASH -rs $TMP/flash_world.vtk $TMP/t2_world.vtk -r $FLASH_TO_T2
+
+echo '---> Creating inverse sform matrix -- sform_inv.mat'
+c3d_affine_tool -sform $T2 -inv -o $TMP/sform_inv.mat
+
+echo '---> Transforming T2 world to T2 scan -- t2.vtk'
+$GREEDY -d 3 -rf $FLASH -rs $TMP/t2_world.vtk $TMP/t2.vtk -r $TMP/sform_inv.mat
+
+echo '---> Writing T2 coordinates -- '$COORDS
+$HANDLER --coordinates $COORDS --flash $FLASH --t2 $T2 --tmp $TMP --voxels $TMP/t2.vtk
+
+# clean up!
+rm -r $TMP
